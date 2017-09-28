@@ -1,0 +1,41 @@
+<launch>
+
+  <!-- Kinect camera node -->
+  <include file="$(find freenect_launch)/launch/freenect.launch">
+    <arg name="camera"                          value="kinect"/>
+    <arg name="depth_registration"              value="true" />
+    <arg name="rgb_processing"                  value="true" />
+    <arg name="ir_processing"                   value="false" />
+    <arg name="depth_processing"                value="false" />
+    <arg name="depth_registered_processing"     value="true" />
+    <arg name="disparity_processing"            value="false" />
+    <arg name="disparity_registered_processing" value="false" />
+    <arg name="sw_registered_processing"        value="false" />
+    <arg name="hw_registered_processing"        value="true" />
+  </include>
+
+  <!-- ORB-SLAM2 node -->
+  <!-- <node pkg="ORB_SLAM2" type="RGBD" name="RGBD_SLAM" args="/home/hustac/ORB_SLAM2/Vocabulary/ORBvoc.txt /home/hustac/ORB_SLAM2/Examples/RGB-D/TUM1.yaml">
+    <remap from="/camera/rgb/image_raw" to="/kinect/rgb/image_mono" />
+    <remap from="/camera/depth_registered/image_raw" to="/kinect/depth_registered/image_raw" />
+  </node> -->
+
+  <!-- STM32-Bridge node -->
+  <node name="stm32_bridge_node" pkg="stm32_bridge" type="stm32_bridge" />
+
+  <!-- imu complemetary filter -->
+  <node name="imu_filter_node" pkg="imu_complementary_filter" type="complementary_filter_node"  output="screen">
+    <param name="fixed_frame" value="imu" />
+    <param name="publish_tf" value="true" />
+  </node>
+
+  <!-- teleop_keyboard -->
+  <node name="teleop_node" pkg="stm32_bridge" type="teleop_twist_keyboard.py" output="screen" />
+
+  <!-- visualize -->
+  <param name="robot_description" textfile="$(find stm32_bridge)/urdf/orange.urdf" />
+  <node name="joint_state_publisher" pkg="joint_state_publisher" type="joint_state_publisher" />
+  <node name="robot_state_publisher" pkg="robot_state_publisher" type="state_publisher" />
+  <node name="rviz_node" pkg="rviz" type="rviz" args="-d $(find stm32_bridge)/default.rviz" />
+
+</launch>
