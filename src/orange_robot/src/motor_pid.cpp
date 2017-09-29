@@ -12,7 +12,6 @@ MotorPID::MotorPID() {
     integral_limit = 0.05;
     output_limit = 1;
 
-    prev_time = std::chrono::high_resolution_clock::now();
     prev_error = 0;
     error_integral = 0;
 
@@ -23,12 +22,13 @@ MotorPID::MotorPID() {
 }
 
 std::string MotorPID::update(double desired, double real,
-        std::chrono::high_resolution_clock::time_point tp) {
+                             double dt) {
     std::string status = "";
 
-    std::chrono::duration<double> fp_seconds = tp - prev_time;
-
-    double dt = fp_seconds.count();
+    // if zero point, clear integral
+    if (desired == .0 && real == .0) {
+        error_integral = 0;
+    }
 
     // p
     double error = desired - real;
@@ -64,14 +64,7 @@ std::string MotorPID::update(double desired, double real,
     }
 
     prev_error = error;
-    prev_time = tp;
-
-    // if zero, clear integral
-    if (desired == .0 && real == .0) {
-        error_integral = 0;
-    }
 
     return status;
 }
-
 }

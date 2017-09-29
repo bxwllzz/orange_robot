@@ -155,7 +155,7 @@ STM32Bridge::STM32Bridge(speed_t baurate) {
         closedir(dir);
         if (ser_no < 0) {
             if (ser_no == -2) {
-                throw std::system_error(EACCES, std::system_category());
+                throw std::runtime_error("Cannot find /dev/ttyUSB*");
             } else {
                 throw std::system_error(errno, std::system_category());
             }

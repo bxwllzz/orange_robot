@@ -48,13 +48,13 @@
         </visual>
     </link>
 
-    <joint name="base_to_left_wheel" type="fixed">
+    <joint name="wheel_left_joint" type="fixed">
         <parent link="base_link" />
         <child link="left_wheel" />
         <origin xyz="0 0.145 0.032" rpy="-1.57 0 0" />
     </joint>
 
-    <joint name="base_to_right_wheel" type="fixed">
+    <joint name="wheel_right_joint" type="fixed">
         <parent link="base_link" />
         <child link="right_wheel" />
         <origin xyz="0 -0.145 0.032" rpy="1.57 0 0" />

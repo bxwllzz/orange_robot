@@ -22,7 +22,6 @@ public:
     double integral_limit;
     double output_limit;
 
-    std::chrono::high_resolution_clock::time_point prev_time;
     double prev_error;
     double error_integral;
 
@@ -32,8 +31,7 @@ public:
     double output;
 
     MotorPID();
-    std::string update(double desired, double real,
-            std::chrono::high_resolution_clock::time_point tp);
+    std::string update(double desired, double real, double dt);
 
 };
 

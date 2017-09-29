@@ -1,0 +1,26 @@
+<launch>
+
+
+  <!-- STM32-Bridge node -->
+  <node name="orange_robot_node" pkg="orange_robot" type="orange_robot" required="true"/>
+
+  <!-- urdf -->
+  <param name="robot_description" textfile="$(find orange_robot)/urdf/orange.urdf" />
+  <node name="joint_state_publisher" pkg="joint_state_publisher" type="joint_state_publisher" required="true" />
+  <node name="robot_state_publisher" pkg="robot_state_publisher" type="state_publisher" required="true" />
+
+  <!-- Load controller config -->
+  <rosparam command="load" file="$(find orange_robot)/launch/orange_diff_controller.yaml" />
+
+  <!-- Spawn controller -->
+  <node name="controller_spawner"
+        pkg="controller_manager" type="spawner" output="screen"
+        args="diffbot_controller" required="true" />
+
+  <!-- teleop_keyboard -->
+  <node name="teleop_node" pkg="orange_robot" type="teleop_twist_keyboard.py" output="screen" />
+
+  <!-- visualize -->
+  <node name="rviz_node" pkg="rviz" type="rviz" args="-d $(find orange_robot)/default.rviz" />
+
+</launch>
