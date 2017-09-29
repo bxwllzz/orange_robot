@@ -1,4 +1,4 @@
-mobile_base_controller:
+orange_controller:
   type        : "diff_drive_controller/DiffDriveController"
   left_wheel  : 'wheel_left_joint'
   right_wheel : 'wheel_right_joint'
@@ -22,23 +22,23 @@ mobile_base_controller:
   # Base frame_id
   base_frame_id: base_footprint #default: base_link
 
+  publish_cmd: true
+
   # Velocity and acceleration limits
   # Whenever a min_* is unspecified, default to -max_*
   linear:
     x:
       has_velocity_limits    : true
-      max_velocity           : 3.0  # m/s
-      min_velocity           : -3.0 # m/s
+      max_velocity           : 0.3  # m/s
       has_acceleration_limits: true
-      max_acceleration       : 2    # m/s^2
-      min_acceleration       : 2    # m/s^2
-      has_jerk_limits        : true
+      max_acceleration       : 0.6  # m/s^2
+      has_jerk_limits        : false
       max_jerk               : 5.0  # m/s^3
   angular:
     z:
       has_velocity_limits    : true
-      max_velocity           : 1.7  # rad/s
+      max_velocity           : 1.5  # rad/s
       has_acceleration_limits: true
-      max_acceleration       : 1.5  # rad/s^2
-      has_jerk_limits        : true
+      max_acceleration       : 3  # rad/s^2
+      has_jerk_limits        : false
       max_jerk               : 2.5  # rad/s^3

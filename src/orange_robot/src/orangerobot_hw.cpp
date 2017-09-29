@@ -5,24 +5,30 @@
 
 using namespace LZZ;
 
-OrangeRobot::OrangeRobot() {
+OrangeRobot::OrangeRobot()
+{
 
     // registe left wheel to wheel interface
     hardware_interface::JointStateHandle handle_state_wheel_left(
-        "wheel_left_joint", zeros, &vel[0], zeros);
-    hardware_interface::JointHandle handle_wheel_left(handle_state_wheel_left,
-                                                      &eff[0]);
-    jnt_wheel.registerHandle(handle_wheel_left);
+        "wheel_left_joint", &pos[0], &vel[0], &eff[0]);
+    jnt_wheel_state.registerHandle(handle_state_wheel_left);
+
+    hardware_interface::JointHandle handle_wheel_left(jnt_wheel_state.getHandle("wheel_left_joint"),
+                                                      &cmd[0]);
+    jnt_wheel_vel.registerHandle(handle_wheel_left);
 
     // registe right wheel to wheel interface
     hardware_interface::JointStateHandle handle_state_wheel_right(
-        "wheel_right_joint", zeros, &vel[1], zeros);
-    hardware_interface::JointHandle handle_wheel_right(handle_state_wheel_right,
-                                                       &eff[0]);
-    jnt_wheel.registerHandle(handle_wheel_right);
+        "wheel_right_joint", &pos[1], &vel[1], &eff[1]);
+    jnt_wheel_state.registerHandle(handle_state_wheel_right);
+
+    hardware_interface::JointHandle handle_wheel_right(jnt_wheel_state.getHandle("wheel_right_joint"),
+                                                       &cmd[1]);
+    jnt_wheel_vel.registerHandle(handle_wheel_right);
 
     // registe wheel interface to robot
-    this->registerInterface(&jnt_wheel);
+    this->registerInterface(&jnt_wheel_state);
+    this->registerInterface(&jnt_wheel_vel);
 
     // registe imu handle to robot
     imu_data.name = "MPU6050";
@@ -35,11 +41,16 @@ OrangeRobot::OrangeRobot() {
     this->registerInterface(&jnt_imu);
 }
 
-bool OrangeRobot::init(ros::NodeHandle &root_nh, ros::NodeHandle &robot_hw_nh) {
+bool OrangeRobot::init(ros::NodeHandle &root_nh, ros::NodeHandle &robot_hw_nh)
+{
 
     // registe publishers
     pub_wheel = robot_hw_nh.advertise<std_msgs::Float64MultiArray>("wheel", 2);
     pub_duty = robot_hw_nh.advertise<std_msgs::Float64MultiArray>("duty", 2);
+
+    // registe service
+    service_start = robot_hw_nh.advertiseService("start", &OrangeRobot::start_callback, this);
+    service_stop = robot_hw_nh.advertiseService("stop", &OrangeRobot::stop_callback, this);
 
     // start bridge to hardware
     this->stm32_bridge = new STM32Bridge(B2000000);
@@ -53,7 +64,8 @@ bool OrangeRobot::init(ros::NodeHandle &root_nh, ros::NodeHandle &robot_hw_nh) {
     const std::string model_param_name = "robot_description";
     std::string robot_model_str = "";
     if (!root_nh.hasParam(model_param_name) ||
-        !root_nh.getParam(model_param_name, robot_model_str)) {
+        !root_nh.getParam(model_param_name, robot_model_str))
+    {
         ROS_ERROR_NAMED(
             "orange",
             "Robot descripion couldn't be retrieved from param server.");
@@ -69,13 +81,13 @@ bool OrangeRobot::init(ros::NodeHandle &root_nh, ros::NodeHandle &robot_hw_nh) {
         model->getLink(left_wheel_joint->child_link_name);
     // get cylinder radius
     wheel_radius = (static_cast<urdf::Cylinder *>(
-                        left_wheel_link->collision->geometry.get()))
+                        left_wheel_link->visual->geometry.get()))
                        ->radius;
-
     return true;
 }
 
-OrangeRobot::~OrangeRobot() {
+OrangeRobot::~OrangeRobot()
+{
     // notify thread_recv_msg to exit
     needDestroy = true;
     // wait for thread_recv_msg
@@ -84,24 +96,42 @@ OrangeRobot::~OrangeRobot() {
     delete stm32_bridge;
 }
 
-void OrangeRobot::recv_msg_forever() {
+bool OrangeRobot::start_callback(std_srvs::Empty::Request &, std_srvs::Empty::Response &)
+{
+    return true;
+}
 
-    while (!needDestroy) {
+bool OrangeRobot::stop_callback(std_srvs::Empty::Request &, std_srvs::Empty::Response &)
+{
+    return true;
+}
+
+void OrangeRobot::recv_msg_forever()
+{
+
+    while (!needDestroy)
+    {
         // recv a msg
         Message msg = stm32_bridge->parse();
 
         // lock sensor_data
         mutex_buf.lock();
-        if (msg.type == MessageType::MY_MESSAGE_NONE) {
+        if (msg.type == MessageType::MY_MESSAGE_NONE)
+        {
             count_error++;
-        } else {
+        }
+        else
+        {
             // handler msg
-            ROS_DEBUG_STREAM(msg);
+            // ROS_DEBUG_STREAM(msg);
             count_frame++;
-            if (msg.type == MessageType::MY_MESSAGE_STRING) {
+            if (msg.type == MessageType::MY_MESSAGE_STRING)
+            {
                 // string msg
                 ROS_INFO_STREAM(reinterpret_cast<char *>(msg.content.data()));
-            } else if (msg.type == MessageType::MY_MESSAGE_MOTOR) {
+            }
+            else if (msg.type == MessageType::MY_MESSAGE_MOTOR)
+            {
                 // motor duty msg
                 std_msgs::Float64MultiArray duty_msg;
                 duty_msg.data.resize(2, 0);
@@ -112,19 +142,23 @@ void OrangeRobot::recv_msg_forever() {
                 buf_eff[0] = duty_msg.data[0];
                 buf_eff[1] = duty_msg.data[1];
                 pub_duty.publish(duty_msg);
-            } else if (msg.type == MessageType::MY_MESSAGE_ENCODER) {
+            }
+            else if (msg.type == MessageType::MY_MESSAGE_ENCODER)
+            {
                 // encoder msg
                 const Encoder_DataTypedef *dat =
                     reinterpret_cast<Encoder_DataTypedef *>(msg.content.data());
                 bool bad_encoder_data = true;
                 // check encoder data
-                if (dat->period > 0) {
+                if (dat->period > 0)
+                {
                     std_msgs::Float64MultiArray wheel_msg;
                     wheel_msg.data.resize(2, 0);
                     wheel_msg.data[0] = dat->delta_left / dat->period;
                     wheel_msg.data[1] = dat->delta_right / dat->period;
                     if (fabs(wheel_msg.data[0]) <= 2 and
-                        fabs(wheel_msg.data[1]) <= 2) {
+                        fabs(wheel_msg.data[1]) <= 2)
+                    {
                         // encoder data is ok
                         bad_encoder_data = false;
 
@@ -132,29 +166,45 @@ void OrangeRobot::recv_msg_forever() {
                         buf_pos[1] = dat->distance_right / wheel_radius;
                         ros::Time new_time = ros::Time::now();
                         double dt;
+                        if (old_time.isZero())
+                        {
+                            dt = static_cast<double>(dat->period);
+                        }
+                        else
+                        {
+                            dt = (new_time - old_time).toSec();
+                        }
 
-                        for (size_t i = 0; i < 2; i++) {
+                        for (size_t i = 0; i < 2; i++)
+                        {
                             // calc wheel speed m/s
-                            if (old_time.isZero()) {
+                            if (old_time.isZero())
+                            {
                                 // without old pos
                                 buf_vel[i] = wheel_msg.data[i];
-                                dt = static_cast<double>(dat->period);
-                            } else {
+                            }
+                            else
+                            {
                                 // has old pos
                                 buf_vel[i] = (buf_pos[i] - old_pos[i]) *
                                              wheel_radius / dt;
-                                dt = (new_time - old_time).toSec();
                             }
                             old_pos[i] = buf_pos[i];
-                            old_time = new_time;
 
                             // PID control
                             std::string status =
-                                pid[i].update(buf_cmd[i], buf_vel[i], dt);
-                            if (status.size()) {
+                                pid[i].update(buf_cmd[i] * wheel_radius, buf_vel[i], dt);
+                            // ROS_INFO_STREAM(i << "->" << 
+                            //                 buf_cmd[i] << " " << 
+                            //                 buf_vel[i] << " " << 
+                            //                 dt << " " <<
+                            //                 pid[i].output);
+                            if (status.size())
+                            {
                                 ROS_WARN_STREAM_NAMED("Motor PID", status);
                             }
                         }
+                        old_time = new_time;
                         // send motor duty cmd
                         stm32_bridge->sendMsgMotor(
                             static_cast<float>(pid[0].output),
@@ -166,11 +216,14 @@ void OrangeRobot::recv_msg_forever() {
                         pub_wheel.publish(wheel_msg);
                     }
                 }
-                if (bad_encoder_data) {
+                if (bad_encoder_data)
+                {
                     // encoder data incorrect
                     ROS_WARN_STREAM("Encoder data incorrect, " << msg);
                 }
-            } else if (msg.type == MessageType::MY_MESSAGE_IMU) {
+            }
+            else if (msg.type == MessageType::MY_MESSAGE_IMU)
+            {
                 // encoder msg
                 const MPU_DataTypedef *dat =
                     reinterpret_cast<MPU_DataTypedef *>(msg.content.data());
@@ -186,7 +239,8 @@ void OrangeRobot::recv_msg_forever() {
                 update_time_buf = ros::Time::now();
             }
         }
-        if (has_new_encoder && has_new_imu) {
+        if (has_new_encoder && has_new_imu)
+        {
             mutex_has_new.unlock();
         }
         mutex_buf.unlock();
@@ -194,7 +248,8 @@ void OrangeRobot::recv_msg_forever() {
 }
 
 /* wait and read sensor data from hardware */
-void OrangeRobot::read() {
+void OrangeRobot::read()
+{
     // wait for new sensor data
     mutex_has_new.lock();
 
@@ -208,7 +263,8 @@ void OrangeRobot::read() {
     std::copy(std::begin(buf_eff), std::end(buf_eff), std::begin(eff));
     has_new_encoder = false;
     has_new_imu = false;
-    if (!update_time.isZero()) {
+    if (!update_time.isZero())
+    {
         update_period = ros::Duration(update_time_buf - update_time);
     }
     update_time = update_time_buf;
@@ -218,7 +274,8 @@ void OrangeRobot::read() {
 }
 
 /* wrtie control data to hardware */
-void OrangeRobot::write() {
+void OrangeRobot::write()
+{
     // lock buf
     std::lock_guard<std::mutex> lock_buf(mutex_buf);
 

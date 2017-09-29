@@ -25,14 +25,21 @@ int main(int argc, char **argv) {
 
     OrangeRobot robot;
     robot.init(nh, nh);
-
+    
+    // start a controller_manager for this robot
     controller_manager::ControllerManager cm(&robot, nh);
+
+    // important!!! 
+    // start thread to async proccess controller_manager service requests
+    ros::AsyncSpinner spinner(1);
+    spinner.start();
 
     while (ros::ok()) {
         robot.read();
         cm.update(robot.get_time(), robot.get_period());
         robot.write();
     }
-
+    spinner.stop();
+    
     return 0;
 }

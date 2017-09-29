@@ -5,7 +5,9 @@
 #include <thread>
 
 #include <ros/ros.h>
+#include <std_srvs/Empty.h>
 #include <hardware_interface/robot_hw.h>
+#include <hardware_interface/joint_state_interface.h>
 #include <hardware_interface/joint_command_interface.h>
 #include <hardware_interface/imu_sensor_interface.h>
 
@@ -45,6 +47,9 @@ public:
 
 private:
 
+    bool start_callback(std_srvs::Empty::Request&, std_srvs::Empty::Response&);
+    bool stop_callback(std_srvs::Empty::Request&, std_srvs::Empty::Response&);
+    
     double wheel_radius = 0;
 
     ros::Time update_time;
@@ -58,18 +63,21 @@ private:
 
     // wheel data
     double pos[2];  // position, rad
-    double vel[2];  // speed, m/s
+    double vel[2];  // m/s
     double eff[2];  // duty, [-1, 1]
 
     // control data
-    double cmd[2];  // desired speed
+    double cmd[2] = {0, 0};  // desired speed, rad/s
 
-    hardware_interface::VelocityJointInterface jnt_wheel;
+    hardware_interface::JointStateInterface jnt_wheel_state;
+    hardware_interface::VelocityJointInterface jnt_wheel_vel;
     hardware_interface::ImuSensorHandle jnt_imu{imu_data};
 
     ros::Publisher pub_wheel;
     ros::Publisher pub_duty;
-
+    ros::ServiceServer service_start;
+    ros::ServiceServer service_stop;
+    
     STM32Bridge *stm32_bridge = nullptr;
 
     // Motor PID controller
