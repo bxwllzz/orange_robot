@@ -142,8 +142,6 @@ ${catkin_INCLUDE_DIRS}
 ## With catkin_make all packages are built within a single CMake context
 ## The recommended prefix ensures that target names across packages don't collide
 # add_executable(${PROJECT_NAME}_node src/orange_robot_node.cpp)
-add_executable(talker src/talker.cpp)
-add_executable(listener src/listener.cpp)
 add_executable(orange_robot
     src/main.cpp
     src/orangerobot_hw.cpp
@@ -165,8 +163,6 @@ add_executable(orange_robot
 # target_link_libraries(${PROJECT_NAME}_node
 #   ${catkin_LIBRARIES}
 # )
-target_link_libraries(talker ${catkin_LIBRARIES})
-target_link_libraries(listener ${catkin_LIBRARIES})
 target_link_libraries(orange_robot ${catkin_LIBRARIES})
 
 
