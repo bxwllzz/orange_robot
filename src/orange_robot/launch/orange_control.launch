@@ -10,12 +10,12 @@
   </node>
 
   <!-- Load controller config -->
-  <rosparam command="load" file="$(find orange_robot)/launch/orange_diff_controller.yaml" />
+  <rosparam command="load" file="$(find orange_robot)/launch/orange_controllers.yaml" />
 
   <!-- Spawn controller -->
   <node name="controller_spawner"
         pkg="controller_manager" type="spawner" output="screen"
-        args="orange_controller --shutdown-timeout 1" required="true" />
+        args="diff_drive_controller imu_sensor_controller --shutdown-timeout 1" required="true" />
 
   <!-- STM32-Bridge node -->
   <node name="orange_robot_node" pkg="orange_robot" type="orange_robot" output="screen" required="true"/>

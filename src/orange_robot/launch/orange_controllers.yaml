@@ -1,4 +1,8 @@
-orange_controller:
+imu_sensor_controller:
+  type        : "diff_drive_controller/DiffDriveController"
+  publish_rate: 200.0               # default: 50
+
+diff_drive_controller:
   type        : "diff_drive_controller/DiffDriveController"
   left_wheel  : 'wheel_left_joint'
   right_wheel : 'wheel_right_joint'
