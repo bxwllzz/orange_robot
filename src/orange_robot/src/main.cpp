@@ -30,7 +30,7 @@ int main(int argc, char **argv) {
     controller_manager::ControllerManager cm(&robot, nh);
 
     // important!!! 
-    // start thread to async proccess controller_manager service requests
+    // start thread to asyncly handle controller_manager service requests
     ros::AsyncSpinner spinner(1);
     spinner.start();
 

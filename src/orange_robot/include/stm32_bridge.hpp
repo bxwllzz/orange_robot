@@ -4,6 +4,7 @@
 #include <termios.h>    // POSIX terminal control definitions
 #include <iostream>
 #include <vector>
+#include <chrono>
 
 namespace LZZ {
 
@@ -27,7 +28,7 @@ struct Encoder_DataTypedef {
     double timestamp;       // 本次测量结束时间
 };
 
-enum class MessageType {
+enum class STM32MessageType {
     // 无数据
     MY_MESSAGE_NONE = 0,
     // C语言字符串, 可变长度
@@ -39,18 +40,18 @@ enum class MessageType {
     MY_MESSAGE_MOTOR = 5,       // 设定电机PWM占空比指令, float float, 0~1
 };
 
-class Message {
+class STM32Message {
 public:
-    MessageType type;
+    STM32MessageType type = STM32MessageType::MY_MESSAGE_NONE;
     std::vector<uint8_t> content;
-    uint8_t crc;
-    Message();
+    std::chrono::high_resolution_clock::time_point tp;
+    uint8_t crc = 0;
     void calcCRC();
 };
 
 uint8_t calc_crc8(uint8_t *ptr, size_t len);
 
-std::ostream& operator<<(std::ostream & os, Message msg);
+std::ostream& operator<<(std::ostream & os, STM32Message msg);
 
 class STM32Bridge {
 private:
@@ -65,23 +66,23 @@ private:
 public:
     STM32Bridge(speed_t baurate);
 
+    ~STM32Bridge();
+
     const std::string& getSerName();
 
     // recv a msg from serial
     // or wait for bus re-sync and return a NONE msg
-    Message parse();
+    STM32Message parse();
 
     int sendFlush(int timeout_n100ms = 0);
 
-    int sendMsg(Message& msg, int timeout_n100ms = 0);
+    int sendMsg(STM32Message& msg, int timeout_n100ms = 0);
 
     int sendMsgMotor(float left, float right);
 
     int sendMsgString(std::string str);
 
     void close();
-
-    ~STM32Bridge();
 };
 }
 #endif

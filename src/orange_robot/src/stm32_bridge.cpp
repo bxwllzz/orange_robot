@@ -13,11 +13,7 @@
 
 namespace LZZ {
 
-Message::Message() :
-        type(MessageType::MY_MESSAGE_NONE), crc(0) {
-}
-
-void Message::calcCRC() {
+void STM32Message::calcCRC() {
     crc = calc_crc8(content.data(), content.size());
 }
 
@@ -40,21 +36,21 @@ uint8_t calc_crc8(uint8_t *ptr, size_t len) {
     return (crc);
 }
 
-std::ostream& operator<<(std::ostream & os, Message msg) {
+std::ostream& operator<<(std::ostream & os, STM32Message msg) {
     Encoder_DataTypedef* enc_dat;
     MPU_DataTypedef* mpu_dat;
     float* motor_dat;
 
     switch (msg.type) {
-    case MessageType::MY_MESSAGE_STRING:
+    case STM32MessageType::MY_MESSAGE_STRING:
         os << "Message type: " << (int) msg.type << "(String), content: "
                 << (char*) msg.content.data();
         break;
-    case MessageType::MY_MESSAGE_TIMESTAMP:
+    case STM32MessageType::MY_MESSAGE_TIMESTAMP:
         os << "Message type: " << (int) msg.type << "(TimeStamp), content: "
                 << *(double*) msg.content.data();
         break;
-    case MessageType::MY_MESSAGE_ENCODER:
+    case STM32MessageType::MY_MESSAGE_ENCODER:
         enc_dat = (Encoder_DataTypedef*) msg.content.data();
         os << "Message type: " << (int) msg.type << "(Encoder)"
                 << ", timestamp: " << enc_dat->timestamp << ", period: "
@@ -64,7 +60,7 @@ std::ostream& operator<<(std::ostream & os, Message msg) {
                 << enc_dat->delta_left << ", delta_right: "
                 << enc_dat->delta_right;
         break;
-    case MessageType::MY_MESSAGE_IMU:
+    case STM32MessageType::MY_MESSAGE_IMU:
         mpu_dat = (MPU_DataTypedef*) msg.content.data();
         os << "Message type: " << (int) msg.type << "(IMU)" << ", timestamp: "
                 << mpu_dat->timestamp << ", temprature: " << mpu_dat->temprature
@@ -73,12 +69,12 @@ std::ostream& operator<<(std::ostream & os, Message msg) {
                 << " " << mpu_dat->gyro_z << " " << mpu_dat->gyro_z;
         ;
         break;
-    case MessageType::MY_MESSAGE_MOTOR:
+    case STM32MessageType::MY_MESSAGE_MOTOR:
         motor_dat = (float*) msg.content.data();
         os << "Message type: " << (int) msg.type << "(Motor), content: "
                 << motor_dat[0] << " " << motor_dat[1];
         break;
-    case MessageType::MY_MESSAGE_NONE:
+    case STM32MessageType::MY_MESSAGE_NONE:
         os << "Message type: " << (int) msg.type << "(None)";
         break;
     default:
@@ -174,8 +170,8 @@ STM32Bridge::STM32Bridge(speed_t baurate) {
         throw std::system_error(errno, std::system_category());
     }
     // 修改串口配置
-    cfsetospeed(&tty, B2000000); // 输出波特率为2M
-    cfsetispeed(&tty, B2000000); // 输入波特率为2M
+    cfsetospeed(&tty, baurate); // 输出波特率为2M
+    cfsetispeed(&tty, baurate); // 输入波特率为2M
     tty.c_iflag = 0; // 默认终端输入
     tty.c_oflag = 0; // 默认终端输出
     tty.c_cflag &= ~CSIZE; // 数据长度8bit
@@ -205,16 +201,18 @@ STM32Bridge::STM32Bridge(speed_t baurate) {
 
 // recv a msg from serial
 // or wait for bus re-sync and return a NONE msg
-Message STM32Bridge::parse() {
+STM32Message STM32Bridge::parse() {
     try {
-        Message msg;
+        STM32Message msg;
         // read message type
         do {
             read((uint8_t*) &msg.type, 1);  // no timeout, wait forever
-        } while (msg.type == MessageType::MY_MESSAGE_NONE);
+        } while (msg.type == STM32MessageType::MY_MESSAGE_NONE);
+        // record frame start recv time
+        msg.tp = std::chrono::high_resolution_clock::now();
         // read message content
         switch (msg.type) {
-        case MessageType::MY_MESSAGE_STRING:
+        case STM32MessageType::MY_MESSAGE_STRING:
             msg.content.reserve(32);
             while (true) {
                 uint8_t c;
@@ -229,28 +227,28 @@ Message STM32Bridge::parse() {
                 }
             }
             break;
-        case MessageType::MY_MESSAGE_TIMESTAMP:
+        case STM32MessageType::MY_MESSAGE_TIMESTAMP:
             msg.content.resize(sizeof(double));
             if (read(msg.content.data(), msg.content.size(), 1) < 0) {
                 // error, timeout
                 throw std::string("Timeout read content timestamp");
             }
             break;
-        case MessageType::MY_MESSAGE_ENCODER:
+        case STM32MessageType::MY_MESSAGE_ENCODER:
             msg.content.resize(sizeof(Encoder_DataTypedef));
             if (read(msg.content.data(), msg.content.size(), 1) < 0) {
                 // error, timeout
                 throw std::string("Timeout read content encoder");
             }
             break;
-        case MessageType::MY_MESSAGE_IMU:
+        case STM32MessageType::MY_MESSAGE_IMU:
             msg.content.resize(sizeof(MPU_DataTypedef));
             if (read(msg.content.data(), msg.content.size(), 1) < 0) {
                 // error, timeout
                 throw std::string("Timeout read content IMU");
             }
             break;
-        case MessageType::MY_MESSAGE_MOTOR:
+        case STM32MessageType::MY_MESSAGE_MOTOR:
             msg.content.resize(sizeof(float) * 2);
             if (read(msg.content.data(), msg.content.size(), 1) < 0) {
                 // error, timeout
@@ -294,7 +292,7 @@ Message STM32Bridge::parse() {
 //                std::cout << "." << std::flush;
         }
 //            std::cout << "OK" << std::endl;
-        return Message();
+        return STM32Message();
     }
 }
 
@@ -318,7 +316,7 @@ int STM32Bridge::sendFlush(int timeout_n100ms) {
     return 0;
 }
 
-int STM32Bridge::sendMsg(Message& msg, int timeout_n100ms) {
+int STM32Bridge::sendMsg(STM32Message& msg, int timeout_n100ms) {
     msg.calcCRC();
     if (write(ser_no, &msg.type, 1) != 1) {
         throw std::system_error(errno, std::system_category());
@@ -345,8 +343,8 @@ int STM32Bridge::sendMsg(Message& msg, int timeout_n100ms) {
 }
 
 int STM32Bridge::sendMsgMotor(float left, float right) {
-    Message msg;
-    msg.type = MessageType::MY_MESSAGE_MOTOR;
+    STM32Message msg;
+    msg.type = STM32MessageType::MY_MESSAGE_MOTOR;
     msg.content.resize(sizeof(float) * 2);
     float *dat = (float*) msg.content.data();
     dat[0] = left;
@@ -355,8 +353,8 @@ int STM32Bridge::sendMsgMotor(float left, float right) {
 }
 
 int STM32Bridge::sendMsgString(std::string str) {
-    Message msg;
-    msg.type = MessageType::MY_MESSAGE_STRING;
+    STM32Message msg;
+    msg.type = STM32MessageType::MY_MESSAGE_STRING;
     msg.content.resize(str.size() + 1);
     memcpy(msg.content.data(), str.c_str(), str.size() + 1);
     return sendMsg(msg);
@@ -372,7 +370,6 @@ void STM32Bridge::close() {
 
 STM32Bridge::~STM32Bridge() {
     try {
-        sendMsgMotor(0, 0);
         close();
     } catch (const std::system_error& err) {
     }
