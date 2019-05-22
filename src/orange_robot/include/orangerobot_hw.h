@@ -62,7 +62,7 @@ class OrangeRobot : public hardware_interface::RobotHW {
 
     hardware_interface::JointStateInterface jnt_wheel_state;
     hardware_interface::VelocityJointInterface jnt_wheel_vel;
-    hardware_interface::ImuSensorHandle jnt_imu{imu_data};
+    hardware_interface::ImuSensorInterface jnt_imu;
 
     ros::Publisher pub_wheel;
     ros::Publisher pub_duty;
@@ -70,6 +70,7 @@ class OrangeRobot : public hardware_interface::RobotHW {
     ros::ServiceServer service_stop;
 
     STM32Bridge *stm32_bridge = nullptr;
+    bool is_stm32_online = true;
     // stm32_time + stm32_time_diff should = ros_time
     ros::Duration stm32_time_diff;
 

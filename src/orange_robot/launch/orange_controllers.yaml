@@ -1,5 +1,5 @@
 imu_sensor_controller:
-  type        : "diff_drive_controller/DiffDriveController"
+  type        : "imu_sensor_controller/ImuSensorController"
   publish_rate: 200.0               # default: 50
 
 diff_drive_controller:

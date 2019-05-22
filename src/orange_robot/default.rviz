@@ -10,6 +10,7 @@ Panels:
         - /TF1
         - /TF1/Frames1
         - /TF1/Tree1
+        - /Kinect1
         - /Kinect1/Auto Size1
       Splitter Ratio: 0.5
     Tree Height: 517
@@ -31,7 +32,7 @@ Panels:
     Experimental: false
     Name: Time
     SyncMode: 0
-    SyncSource: ""
+    SyncSource: Kinect
 Visualization Manager:
   Class: ""
   Displays:
@@ -109,8 +110,16 @@ Visualization Manager:
           Value: false
         imu_link:
           Value: false
+        kinect_depth_frame:
+          Value: false
+        kinect_depth_optical_frame:
+          Value: false
         kinect_link:
           Value: false
+        kinect_rgb_frame:
+          Value: false
+        kinect_rgb_optical_frame:
+          Value: true
         odom:
           Value: true
         wheel_left_link:
@@ -129,7 +138,12 @@ Visualization Manager:
               imu_link:
                 {}
               kinect_link:
-                {}
+                kinect_depth_frame:
+                  kinect_depth_optical_frame:
+                    {}
+                kinect_rgb_frame:
+                  kinect_rgb_optical_frame:
+                    {}
               wheel_left_link:
                 {}
               wheel_right_link:
@@ -198,7 +212,7 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz/Orbit
-      Distance: 3.10593462
+      Distance: 4.90813923
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.0599999987
         Stereo Focal Distance: 1

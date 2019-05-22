@@ -50,6 +50,9 @@ OrangeRobot::OrangeRobot() {
     imu_data.angular_velocity_covariance = zeros;
     imu_data.linear_acceleration = accel;
     imu_data.linear_acceleration_covariance = zeros;
+
+    jnt_imu.registerHandle(hardware_interface::ImuSensorHandle(imu_data));
+
     this->registerInterface(&jnt_imu);
 }
 
@@ -58,15 +61,6 @@ bool OrangeRobot::init(ros::NodeHandle &root_nh, ros::NodeHandle &robot_hw_nh) {
     // registe publishers
     pub_wheel = robot_hw_nh.advertise<std_msgs::Float64MultiArray>("wheel", 2);
     pub_duty = robot_hw_nh.advertise<std_msgs::Float64MultiArray>("duty", 2);
-
-    // start bridge to hardware
-    this->stm32_bridge = new STM32Bridge(B2000000);
-    ROS_INFO_STREAM(
-        "Auto-selected serial port: " << stm32_bridge->getSerName());
-
-    // start serial msg recv and proc thread
-    thread_recv_msg = std::thread(&OrangeRobot::recv_msg_forever, this);
-    thread_proc_msg = std::thread(&OrangeRobot::proc_msg_forever, this);
 
     // read wheel radius from URDF
     const std::string model_param_name = "robot_description";
@@ -90,12 +84,20 @@ bool OrangeRobot::init(ros::NodeHandle &root_nh, ros::NodeHandle &robot_hw_nh) {
     wheel_radius = (static_cast<urdf::Cylinder *>(
                         left_wheel_link->collision->geometry.get()))
                        ->radius;
+
+    // start bridge to hardware
+    this->stm32_bridge = new STM32Bridge(B2000000);
+    ROS_INFO_STREAM(
+        "Auto-selected serial port: " << stm32_bridge->getSerName());
+
+    // start serial msg recv and proc thread
+    thread_recv_msg = std::thread(&OrangeRobot::recv_msg_forever, this);
+    thread_proc_msg = std::thread(&OrangeRobot::proc_msg_forever, this);
+
     return true;
 }
 
-OrangeRobot::~OrangeRobot() {
-    delete stm32_bridge;
-}
+OrangeRobot::~OrangeRobot() { delete stm32_bridge; }
 
 void OrangeRobot::recv_msg_forever() {
     while (true) {
@@ -117,155 +119,190 @@ void OrangeRobot::proc_msg_forever() {
         std::unique_lock<std::mutex> lock(mutex_msg);
         // use cv_msg.wait() to wait msg ready
         if (queue_msg.size() <= 0) {
-            cv_msg.wait(lock, [this]() { return queue_msg.size() > 0; });
+            while (
+                !cv_msg.wait_for(lock, std::chrono::milliseconds(100),
+                                 [this]() { return queue_msg.size() > 0; })) {
+                // STM32 offline
+                if (is_stm32_online) {
+                    is_stm32_online = false;
+                    ROS_WARN_STREAM(
+                        "STM32 offline! Stop motors and reset PID.");
+                    stm32_bridge->sendMsgMotor(0, 0);
+                    old_time = ros::Time(0);
+                    old_pos[0] = 0;
+                    old_pos[1] = 0;
+                    pid[0].error_integral = 0;
+                    pid[1].error_integral = 0;
+                }
+            }
+            if (!is_stm32_online) {
+                is_stm32_online = true;
+                ROS_WARN_STREAM("STM32 online!");
+            }
         }
 
         STM32Message msg(std::move(queue_msg.front()));
         queue_msg.pop();
         lock.unlock();
 
-        // lock sensor_data
-        mutex_buf.lock();
+        {
+            // lock buf data
+            std::lock_guard<std::mutex> lock(mutex_buf);
 
-        // proccess msg
-        if (msg.type == STM32MessageType::MY_MESSAGE_NONE) {
-            count_error++;
-        } else {
-            // handler msg
-            // ROS_DEBUG_STREAM(msg);
-            count_frame++;
-            if (msg.type == STM32MessageType::MY_MESSAGE_TIMESTAMP) {
-                // timestamp msg
-                ros::Time stm32_time =
-                    ros::Time(*reinterpret_cast<double *>(msg.content.data()));
-                ros::Time ros_time = chrono_to_ros(msg.tp);
-                ros::Duration new_diff = ros_time - stm32_time;
-                if (std::fabs(new_diff.toSec() - stm32_time_diff.toSec()) >
-                    0.1) {
-                    if (stm32_time_diff.isZero()) {
-                        ROS_INFO_STREAM("Time synced with STM32");
-                    } else {
-                        ROS_WARN_STREAM("Time resynced with STM32");
+            // proccess msg
+            if (msg.type == STM32MessageType::MY_MESSAGE_NONE) {
+                count_error++;
+            } else {
+                // handler msg
+                // ROS_DEBUG_STREAM(msg);
+                count_frame++;
+                if (msg.type == STM32MessageType::MY_MESSAGE_TIMESTAMP) {
+                    // timestamp msg
+                    ros::Time stm32_time = ros::Time(
+                        *reinterpret_cast<double *>(msg.content.data()));
+                    ros::Time ros_time = chrono_to_ros(msg.tp);
+                    ros::Duration new_diff = ros_time - stm32_time;
+                    if (std::fabs(new_diff.toSec() - stm32_time_diff.toSec()) >
+                        0.1) {
+                        if (stm32_time_diff.isZero()) {
+                            ROS_INFO_STREAM("Time synced with STM32");
+                        } else {
+                            ROS_WARN_STREAM("Time resynced with STM32");
+                        }
                     }
-                }
-                stm32_time_diff = new_diff;
-            } else if (msg.type == STM32MessageType::MY_MESSAGE_STRING) {
-                // string msg
-                ROS_INFO_STREAM(reinterpret_cast<char *>(msg.content.data()));
-            } else if (msg.type == STM32MessageType::MY_MESSAGE_MOTOR) {
-                // motor duty msg
-                std_msgs::Float64MultiArray duty_msg;
-                duty_msg.data.resize(2, 0);
-                duty_msg.data[0] =
-                    (reinterpret_cast<float *>(msg.content.data()))[0];
-                duty_msg.data[1] =
-                    (reinterpret_cast<float *>(msg.content.data()))[1];
-                buf_eff[0] = duty_msg.data[0];
-                buf_eff[1] = duty_msg.data[1];
-                pub_duty.publish(duty_msg);
-            } else if (msg.type == STM32MessageType::MY_MESSAGE_ENCODER) {
-                // encoder msg
-                const Encoder_DataTypedef *dat =
-                    reinterpret_cast<Encoder_DataTypedef *>(msg.content.data());
+                    stm32_time_diff = new_diff;
+                } else if (msg.type == STM32MessageType::MY_MESSAGE_STRING) {
+                    // string msg
+                    ROS_INFO_STREAM(
+                        reinterpret_cast<char *>(msg.content.data()));
+                } else if (msg.type == STM32MessageType::MY_MESSAGE_MOTOR) {
+                    // motor duty msg
+                    std_msgs::Float64MultiArray duty_msg;
+                    duty_msg.data.resize(2, 0);
+                    duty_msg.data[0] =
+                        (reinterpret_cast<float *>(msg.content.data()))[0];
+                    duty_msg.data[1] =
+                        (reinterpret_cast<float *>(msg.content.data()))[1];
+                    buf_eff[0] = duty_msg.data[0];
+                    buf_eff[1] = duty_msg.data[1];
+                    pub_duty.publish(duty_msg);
+                } else if (msg.type == STM32MessageType::MY_MESSAGE_ENCODER) {
+                    // encoder msg
+                    const Encoder_DataTypedef *dat =
+                        reinterpret_cast<Encoder_DataTypedef *>(
+                            msg.content.data());
 
-                // check time sync
-                ros::Duration time_diff =
-                    chrono_to_ros(msg.tp) -
-                    (ros::Time(dat->timestamp) + stm32_time_diff);
-                if (std::fabs(time_diff.toSec()) > 0.1) {
-                    ROS_WARN_STREAM("Encoder timestamp miss match, " << msg);
-                    continue;
-                }
+                    // check time sync
+                    ros::Duration time_diff =
+                        chrono_to_ros(msg.tp) -
+                        (ros::Time(dat->timestamp) + stm32_time_diff);
+                    if (std::fabs(time_diff.toSec()) > 0.1) {
+                        ROS_WARN_STREAM("Encoder timestamp miss match "
+                                        "(ros_time - stm32_time="
+                                        << time_diff.toSec() << ")");
+                        continue;
+                    }
 
-                // check encoder data
-                if (dat->period <= 0) {
-                    ROS_WARN_STREAM("Encoder period <= 0, " << msg);
-                    continue;
-                }
-                std_msgs::Float64MultiArray wheel_msg;
-                wheel_msg.data.resize(2, 0);
-                wheel_msg.data[0] = dat->delta_left / dat->period;
-                wheel_msg.data[1] = dat->delta_right / dat->period;
-                if (fabs(wheel_msg.data[0]) > 2 ||
-                    fabs(wheel_msg.data[1]) > 2) {
-                    ROS_WARN_STREAM("Encoder data incorrect, " << msg);
-                    continue;
-                }
+                    // check encoder data
+                    if (dat->period < 0.004) {
+                        ROS_WARN_STREAM("Encoder period < 0.004 sec, " << msg);
+                        continue;
+                    }
+                    if (fabs(dat->delta_left / dat->period) > 2 ||
+                        fabs(dat->delta_right / dat->period) > 2) {
+                        ROS_WARN_STREAM("Encoder speed > 2, " << msg);
+                        continue;
+                    }
 
-                buf_pos[0] = dat->distance_left / wheel_radius;
-                buf_pos[1] = dat->distance_right / wheel_radius;
-                ros::Time new_time = ros::Time::now();
-                double dt;
-                if (old_time.isZero()) {
-                    dt = static_cast<double>(dat->period);
-                } else {
-                    dt = (new_time - old_time).toSec();
-                }
+                    double new_pos[2]{dat->distance_left / wheel_radius,
+                                      dat->distance_right / wheel_radius};
+                    ros::Time new_time = ros::Time::now();
 
-                for (size_t i = 0; i < 2; i++) {
-                    // calc wheel speed m/s
+                    // calc vel (rad/m)
+                    double dt;
                     if (old_time.isZero()) {
                         // in first loop, use period from remote
-                        buf_vel[i] = wheel_msg.data[i];
+                        dt = static_cast<double>(dat->period);
+                        buf_vel[0] = dat->delta_left / dt / wheel_radius;
+                        buf_vel[1] = dat->delta_right / dt / wheel_radius;
                     } else {
                         // has old pos
-                        buf_vel[i] =
-                            (buf_pos[i] - old_pos[i]) * wheel_radius / dt;
+                        dt = (new_time - old_time).toSec();
+                        buf_vel[0] =
+                            (new_pos[0] - old_pos[0]) / dt;
+                        buf_vel[1] =
+                            (new_pos[1] - old_pos[1]) / dt;
                     }
-                    old_pos[i] = buf_pos[i];
+                    // calc pos (rad)
+                    buf_pos[0] += buf_vel[0] * dt;
+                    buf_pos[1] += buf_vel[1] * dt;
 
-                    // PID control
-                    std::string status = pid[i].update(
-                        buf_cmd[i] * wheel_radius, buf_vel[i], dt);
-                    // ROS_INFO_STREAM(i << "->" <<
-                    //                 buf_cmd[i] << " " <<
-                    //                 buf_vel[i] << " " <<
-                    //                 dt << " " <<
-                    //                 pid[i].output);
-                    if (status.size()) {
-                        ROS_WARN_STREAM_NAMED("Motor PID", status);
+                    old_pos[0] = new_pos[0];
+                    old_pos[1] = new_pos[1];
+                    old_time = new_time;
+
+                    for (size_t i = 0; i < 2; i++) {
+                        // PID control
+                        std::string status = pid[i].update(
+                            buf_cmd[i] * wheel_radius, buf_vel[i] * wheel_radius, dt);
+//                         ROS_INFO_STREAM(i << "->" <<
+//                                         dat->delta_left << " " <<
+//                                         wheel_radius << " " <<
+//                                         buf_cmd[i] << " " <<
+//                                         buf_vel[i] << " " <<
+//                                         dt << " " <<
+//                                         pid[i].output);
+                        if (status.size()) {
+                            ROS_WARN_STREAM_NAMED("Motor PID", status);
+                        }
                     }
+                    // send motor duty cmd
+                    stm32_bridge->sendMsgMotor(
+                        static_cast<float>(pid[0].output),
+                        static_cast<float>(pid[1].output));
+
+                    has_new_encoder = chrono_to_ros(msg.tp);
+
+                    // pulish wheel speed
+                    std_msgs::Float64MultiArray wheel_msg;
+                    wheel_msg.data.resize(2, 0);
+                    wheel_msg.data[0] = buf_vel[0] * wheel_radius;
+                    wheel_msg.data[1] = buf_vel[1] * wheel_radius;
+                    pub_wheel.publish(wheel_msg);
+
+                } else if (msg.type == STM32MessageType::MY_MESSAGE_IMU) {
+                    // encoder msg
+                    const MPU_DataTypedef *dat =
+                        reinterpret_cast<MPU_DataTypedef *>(msg.content.data());
+
+                    // check time sync
+                    ros::Duration time_diff =
+                        chrono_to_ros(msg.tp) -
+                        (ros::Time(dat->timestamp) + stm32_time_diff);
+                    if (std::fabs(time_diff.toSec()) > 0.1) {
+                        ROS_WARN_STREAM(
+                            "IMU timestamp miss match (ros_time - stm32_time="
+                            << time_diff.toSec() << ")");
+                        continue;
+                    }
+
+                    imu_data.frame_id = "imu_link";
+                    buf_gyro[0] = dat->gyro_x;
+                    buf_gyro[1] = dat->gyro_y;
+                    buf_gyro[2] = dat->gyro_z;
+                    buf_accel[0] = dat->accel_x;
+                    buf_accel[1] = dat->accel_y;
+                    buf_accel[2] = dat->accel_z;
+
+                    has_new_imu = chrono_to_ros(msg.tp);
                 }
-                old_time = new_time;
-                // send motor duty cmd
-                stm32_bridge->sendMsgMotor(static_cast<float>(pid[0].output),
-                                           static_cast<float>(pid[1].output));
-
-                has_new_encoder = chrono_to_ros(msg.tp);
-
-                pub_wheel.publish(wheel_msg);
-
-            } else if (msg.type == STM32MessageType::MY_MESSAGE_IMU) {
-                // encoder msg
-                const MPU_DataTypedef *dat =
-                    reinterpret_cast<MPU_DataTypedef *>(msg.content.data());
-
-                // check time sync
-                ros::Duration time_diff =
-                    chrono_to_ros(msg.tp) -
-                    (ros::Time(dat->timestamp) + stm32_time_diff);
-                if (std::fabs(time_diff.toSec()) > 0.1) {
-                    ROS_WARN_STREAM("IMU timestamp miss match, " << msg);
-                    continue;
-                }
-
-                imu_data.frame_id = "imu_link";
-                buf_gyro[0] = dat->gyro_x;
-                buf_gyro[1] = dat->gyro_y;
-                buf_gyro[2] = dat->gyro_z;
-                buf_accel[0] = dat->accel_x;
-                buf_accel[0] = dat->accel_y;
-                buf_accel[0] = dat->accel_z;
-
-                has_new_imu = chrono_to_ros(msg.tp);
+            }
+            if (!has_new_encoder.isZero() && !has_new_imu.isZero() &&
+                std::fabs((has_new_encoder - has_new_imu).toSec()) < 0.1) {
+                data_ready = true;
+                cv_data_ready.notify_one();
             }
         }
-        if (!has_new_encoder.isZero() && !has_new_imu.isZero() &&
-            std::fabs((has_new_encoder - has_new_imu).toSec()) < 0.1) {
-            data_ready = true;
-            cv_data_ready.notify_one();
-        }
-        mutex_buf.unlock();
     }
 }
 

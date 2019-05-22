@@ -10,20 +10,43 @@
   </node>
 
   <!-- Load controller config -->
-  <rosparam command="load" file="$(find orange_robot)/launch/orange_controllers.yaml" />
+  <!-- <rosparam command="load" file="$(find orange_robot)/launch/orange_controllers.yaml" /> -->
 
   <!-- Spawn controller -->
-  <node name="controller_spawner"
+  <!-- <node name="controller_spawner" -->
         pkg="controller_manager" type="spawner" output="screen"
         args="diff_drive_controller imu_sensor_controller --shutdown-timeout 1" required="true" />
 
   <!-- STM32-Bridge node -->
-  <node name="orange_robot_node" pkg="orange_robot" type="orange_robot" output="screen" required="true"/>
+  <!-- <node name="orange_robot_node" pkg="orange_robot" type="orange_robot" output="screen" required="true"/> -->
+
+<!-- Kinect camera node -->
+<include file="$(find freenect_launch)/launch/freenect.launch">
+  <arg name="camera"                          value="kinect"/>
+  <arg name="depth_registration"              value="true" />
+  <arg name="rgb_processing"                  value="true" />
+  <arg name="ir_processing"                   value="false" />
+  <arg name="depth_processing"                value="false" />
+  <arg name="depth_registered_processing"     value="true" />
+  <arg name="disparity_processing"            value="false" />
+  <arg name="disparity_registered_processing" value="false" />
+  <arg name="sw_registered_processing"        value="false" />
+  <arg name="hw_registered_processing"        value="true" />
+</include>
+
+  <!-- ORB-SLAM2 node -->
+  <!-- <node pkg="ORB_SLAM2" type="RGBD" name="RGBD_SLAM" args="/home/hustac/ORB_SLAM2/Vocabulary/ORBvoc.txt /home/hustac/ORB_SLAM2/Examples/RGB-D/TUM1.yaml">
+    <remap from="/camera/rgb/image_raw" to="/kinect/rgb/image_mono" />
+    <remap from="/camera/depth_registered/image_raw" to="/kinect/depth_registered/image_raw" />
+  </node> -->
+
+  <!-- rgbdtam node -->
+  <!-- <node pkg="rgbdtam" type="rgbdtam" name="rgbdtam" output="screen" /> -->
 
   <!-- teleop_keyboard -->
   <!-- <node name="teleop_node" pkg="orange_robot" type="teleop_twist_keyboard.py" output="screen" /> -->
 
   <!-- visualize -->
-  <node name="rviz_node" pkg="rviz" type="rviz" args="-d $(find orange_robot)/default.rviz" />
+  <!-- <node name="rviz_node" pkg="rviz" type="rviz" args="-d $(find orange_robot)/default.rviz" /> -->
 
 </launch>

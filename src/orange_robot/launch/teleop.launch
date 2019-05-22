@@ -1,0 +1,6 @@
+<launch>
+
+  <!-- teleop_keyboard -->
+  <node name="teleop_node" pkg="orange_robot" type="teleop_twist_keyboard.py" output="screen" />
+
+</launch>
